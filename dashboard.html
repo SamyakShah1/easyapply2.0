@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AutoApply Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:        #0d0f1a;
+    --surface:   #141728;
+    --surface2:  #1c2035;
+    --border:    #262b45;
+    --accent:    #6c63ff;
+    --accent2:   #a78bfa;
+    --green:     #22c55e;
+    --yellow:    #f59e0b;
+    --red:       #ef4444;
+    --blue:      #3b82f6;
+    --cyan:      #06b6d4;
+    --purple:    #d946ef;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --radius:    14px;
+    --mono:      'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── Header ── */
+  .header {
+    background: linear-gradient(135deg, #1a1040 0%, #0d0f1a 60%);
+    border-bottom: 1px solid var(--border);
+    padding: 18px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .logo { width: 38px; height: 38px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border-radius: 10px; display: grid; place-items: center; font-size: 18px; }
+  .header h1 { font-size: 19px; font-weight: 700; }
+  .header h1 span { color: var(--accent2); }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+
+  /* Agent status pills */
+  .agent-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 20px;
+    font-size: 12px; font-weight: 600;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    transition: all .3s;
+  }
+  .agent-pill .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .agent-pill.running { border-color: var(--green); }
+  .agent-pill.running .dot { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.5s infinite; }
+  .agent-pill.recent { border-color: var(--yellow); }
+  .agent-pill.recent .dot { background: var(--yellow); }
+  .agent-pill.idle .dot { background: var(--muted); }
+  .agent-pill.naukri-pill.running { color: var(--cyan); }
+  .agent-pill.internshala-pill.running { color: var(--purple); }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+  .refresh-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 7px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all .2s; }
+  .refresh-btn:hover { background: var(--accent); border-color: var(--accent); }
+
+  /* ── Main ── */
+  .main { padding: 24px 32px; max-width: 1500px; margin: 0 auto; }
+
+  /* ── Stat cards ── */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; position: relative; overflow: hidden; transition: transform .2s, box-shadow .2s; cursor: default; }
+  .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(108,99,255,.12); }
+  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: var(--radius) var(--radius) 0 0; }
+  .stat-card.total::before   { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .stat-card.applied::before { background: var(--blue); }
+  .stat-card.interview::before { background: var(--yellow); }
+  .stat-card.offer::before   { background: var(--green); }
+  .stat-card.rejected::before{ background: var(--red); }
+  .stat-label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+  .stat-value { font-size: 34px; font-weight: 800; line-height: 1; }
+  .stat-card.total   .stat-value { background: linear-gradient(135deg,var(--accent),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .stat-card.applied .stat-value { color: var(--blue); }
+  .stat-card.interview .stat-value { color: var(--yellow); }
+  .stat-card.offer   .stat-value { color: var(--green); }
+  .stat-card.rejected .stat-value { color: var(--red); }
+  .stat-icon { position: absolute; right: 16px; top: 16px; font-size: 22px; opacity: .12; }
+
+  /* ── Charts row ── */
+  .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-bottom: 24px; }
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .chart-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 14px; }
+  .chart-wrap { position: relative; height: 210px; }
+
+  /* ── Table ── */
+  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 24px; }
+  .table-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .table-header h2 { font-size: 15px; font-weight: 700; }
+  .export-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 5px 12px; border-radius: 8px; font-size: 12px; cursor: pointer; transition: all .2s; }
+  .export-btn:hover { border-color: var(--green); color: var(--green); }
+
+  .filters { display: flex; gap: 10px; align-items: center; padding: 14px 20px 0; flex-wrap: wrap; }
+  .filter-select, .filter-input { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 7px 12px; border-radius: 8px; font-size: 13px; outline: none; transition: border-color .2s; }
+  .filter-select:focus, .filter-input:focus { border-color: var(--accent); }
+  .filter-input { flex: 1; min-width: 200px; }
+  .results-count { font-size: 12px; color: var(--muted); margin-left: auto; }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { padding: 11px 14px; text-align: left; font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; background: var(--surface2); border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; }
+  thead th:hover { color: var(--text); }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background .12s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: var(--surface2); }
+  tbody td { padding: 11px 14px; font-size: 13px; vertical-align: middle; }
+
+  .td-title { font-weight: 600; max-width: 220px; }
+  .td-company { color: var(--muted); font-size: 11px; margin-top: 3px; }
+  .td-url a { color: var(--accent2); text-decoration: none; font-size: 12px; }
+  .td-url a:hover { text-decoration: underline; }
+  .td-date { color: var(--muted); white-space: nowrap; font-size: 11px; }
+  .td-platform span { background: var(--surface2); border: 1px solid var(--border); padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .td-platform span.p-Naukri { color: var(--cyan); border-color: rgba(6,182,212,.3); }
+  .td-platform span.p-Internshala { color: var(--purple); border-color: rgba(217,70,239,.3); }
+  .td-location, .td-salary { color: var(--muted); font-size: 11px; max-width: 130px; }
+
+  /* ── Status badge ── */
+  .status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; cursor: pointer; border: none; outline: none; transition: opacity .2s, transform .1s; }
+  .status-badge:hover { opacity: .8; transform: scale(1.05); }
+  .status-badge::before { content: '●'; font-size: 7px; }
+  .s-Applied   { background: rgba(59,130,246,.15);  color: #60a5fa; }
+  .s-Interview { background: rgba(245,158,11,.15);  color: #fbbf24; }
+  .s-Offer     { background: rgba(34,197,94,.15);   color: #4ade80; }
+  .s-Rejected  { background: rgba(239,68,68,.15);   color: #f87171; }
+  .s-Withdrawn { background: rgba(100,116,139,.15); color: #94a3b8; }
+
+  /* ── Status menu ── */
+  .status-menu { position: fixed; z-index: 9999; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 12px 40px rgba(0,0,0,.5); display: none; }
+  .status-menu.open { display: block; }
+  .status-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 12px; background: none; border: none; color: var(--text); font-size: 12px; cursor: pointer; border-radius: 7px; transition: background .15s; white-space: nowrap; }
+  .status-menu button:hover { background: var(--border); }
+
+  /* ── Empty state ── */
+  .empty-state { text-align: center; padding: 50px 20px; color: var(--muted); }
+  .empty-state .icon { font-size: 42px; margin-bottom: 12px; opacity: .35; }
+
+  /* ── Live logs panel ── */
+  .logs-section { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px; }
+  .log-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .log-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .log-title { font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .log-title.naukri    { color: var(--cyan); }
+  .log-title.internshala { color: var(--purple); }
+  .log-body { font-family: var(--mono); font-size: 11px; color: #8b9cb8; padding: 12px 14px; height: 240px; overflow-y: auto; line-height: 1.6; }
+  .log-body::-webkit-scrollbar { width: 4px; }
+  .log-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .log-line { white-space: pre-wrap; word-break: break-all; }
+  .log-line.success { color: #4ade80; }
+  .log-line.error   { color: #f87171; }
+  .log-line.action  { color: var(--accent2); }
+  .log-line.info    { color: #60a5fa; }
+  .log-empty { color: var(--muted); font-style: italic; padding: 8px 0; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  @media (max-width: 900px) {
+    .charts-row, .logs-section { grid-template-columns: 1fr; }
+    .main { padding: 12px; }
+    .header { padding: 12px 14px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo">🚀</div>
+    <h1>Auto<span>Apply</span> Dashboard</h1>
+  </div>
+  <div class="header-right">
+    <div class="agent-pill naukri-pill idle" id="naukriPill">
+      <div class="dot"></div> Naukri
+    </div>
+    <div class="agent-pill internshala-pill idle" id="intershalaPlill">
+      <div class="dot"></div> Internshala
+    </div>
+    <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- Stat Cards -->
+  <div class="stat-grid">
+    <div class="stat-card total">
+      <div class="stat-icon">📊</div>
+      <div class="stat-label">Total Applied</div>
+      <div class="stat-value" id="s-total">0</div>
+    </div>
+    <div class="stat-card applied">
+      <div class="stat-icon">📤</div>
+      <div class="stat-label">Awaiting</div>
+      <div class="stat-value" id="s-applied">0</div>
+    </div>
+    <div class="stat-card interview">
+      <div class="stat-icon">🎯</div>
+      <div class="stat-label">Interviews</div>
+      <div class="stat-value" id="s-interview">0</div>
+    </div>
+    <div class="stat-card offer">
+      <div class="stat-icon">🏆</div>
+      <div class="stat-label">Offers</div>
+      <div class="stat-value" id="s-offer">0</div>
+    </div>
+    <div class="stat-card rejected">
+      <div class="stat-icon">❌</div>
+      <div class="stat-label">Rejected</div>
+      <div class="stat-value" id="s-rejected">0</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="chart-title">Applications Per Day (Last 14 Days)</div>
+      <div class="chart-wrap"><canvas id="dailyChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">By Platform</div>
+      <div class="chart-wrap"><canvas id="platformChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Live Agent Logs -->
+  <div class="logs-section">
+    <div class="log-card">
+      <div class="log-header">
+        <div class="log-title naukri">⬡ Naukri Agent — Live Log</div>
+        <span id="naukriStatus" style="font-size:11px;color:var(--muted)">—</span>
+      </div>
+      <div class="log-body" id="naukriLog">
+        <div class="log-empty">Waiting for agent to start…</div>
+      </div>
+    </div>
+    <div class="log-card">
+      <div class="log-header">
+        <div class="log-title internshala">◈ Internshala Agent — Live Log</div>
+        <span id="internshalaStatus" style="font-size:11px;color:var(--muted)">—</span>
+      </div>
+      <div class="log-body" id="internshalaLog">
+        <div class="log-empty">Waiting for agent to start…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Application Table -->
+  <div class="table-card">
+    <div class="table-header">
+      <h2>Application History</h2>
+      <button class="export-btn" onclick="exportCSV()">⬇ Export CSV</button>
+    </div>
+    <div class="filters">
+      <input class="filter-input" id="searchInput" placeholder="🔍  Search company, title, location…" oninput="applyFilters()"/>
+      <select class="filter-select" id="statusFilter" onchange="applyFilters()">
+        <option value="">All Statuses</option>
+        <option>Applied</option><option>Interview</option>
+        <option>Offer</option><option>Rejected</option><option>Withdrawn</option>
+      </select>
+      <select class="filter-select" id="platformFilter" onchange="applyFilters()">
+        <option value="">All Platforms</option>
+      </select>
+      <span class="results-count" id="resultsCount">—</span>
+    </div>
+    <div class="table-wrap">
+      <table id="appTable">
+        <thead>
+          <tr>
+            <th onclick="sortBy('applied_at')">Date ↕</th>
+            <th onclick="sortBy('job_title')">Job ↕</th>
+            <th onclick="sortBy('platform')">Platform ↕</th>
+            <th onclick="sortBy('location')">Location ↕</th>
+            <th onclick="sortBy('salary_range')">Salary ↕</th>
+            <th>Status</th>
+            <th>Link</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+      <div class="empty-state" id="emptyState" style="display:none">
+        <div class="icon">📭</div>
+        <p>No applications yet. Run the orchestrator to start applying!</p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Status context menu -->
+<div class="status-menu" id="statusMenu">
+  <button onclick="setStatus('Applied')">📤 Applied</button>
+  <button onclick="setStatus('Interview')">🎯 Interview</button>
+  <button onclick="setStatus('Offer')">🏆 Offer</button>
+  <button onclick="setStatus('Rejected')">❌ Rejected</button>
+  <button onclick="setStatus('Withdrawn')">🚫 Withdrawn</button>
+</div>
+
+<script>
+const API = 'http://localhost:8765';
+let allApps = [];
+let sortKey = 'applied_at';
+let sortAsc = false;
+let menuTarget = null;
+let dailyChart = null;
+let platformChart = null;
+
+const CHART_OPTS = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
+
+// ── Load everything ──────────────────────────────────────────────────────────
+async function loadAll() {
+  await Promise.all([loadData(), loadLogs(), loadAgentStatus()]);
+}
+
+async function loadData() {
+  try {
+    const [apps, stats] = await Promise.all([
+      fetch(`${API}/api/applications`).then(r => r.json()),
+      fetch(`${API}/api/stats`).then(r => r.json()),
+    ]);
+    allApps = apps;
+    renderStats(stats);
+    renderCharts(stats);
+    populatePlatformFilter(apps);
+    applyFilters();
+  } catch(e) { console.warn('Data load failed', e); }
+}
+
+async function loadLogs() {
+  try {
+    const data = await fetch(`${API}/api/logs`).then(r => r.json());
+    renderLog('naukriLog', data.naukri || []);
+    renderLog('internshalaLog', data.internshala || []);
+    const n = data.naukri?.length || 0;
+    const i = data.internshala?.length || 0;
+    document.getElementById('naukriStatus').textContent = n ? `${n} lines` : 'No log yet';
+    document.getElementById('internshalaStatus').textContent = i ? `${i} lines` : 'No log yet';
+  } catch(e) { console.warn('Log load failed', e); }
+}
+
+async function loadAgentStatus() {
+  try {
+    const data = await fetch(`${API}/api/agent_status`).then(r => r.json());
+    setAgentPill('naukriPill', 'naukri-pill', data.naukri);
+    setAgentPill('intershalaPlill', 'internshala-pill', data.internshala);
+  } catch(e) {}
+}
+
+function setAgentPill(id, cls, status) {
+  const el = document.getElementById(id);
+  el.className = `agent-pill ${cls} ${status}`;
+}
+
+// ── Log rendering ────────────────────────────────────────────────────────────
+function renderLog(containerId, lines) {
+  const el = document.getElementById(containerId);
+  if (!lines.length) {
+    el.innerHTML = '<div class="log-empty">No log output yet…</div>';
+    return;
+  }
+  el.innerHTML = lines.map(line => {
+    let cls = 'log-line';
+    const l = line.toLowerCase();
+    if (l.includes('tracking success') || l.includes('applied + logged')) cls += ' success';
+    else if (l.includes('error') || l.includes('failed') || l.includes('✗')) cls += ' error';
+    else if (l.includes('action:') || l.includes('applying')) cls += ' action';
+    else if (l.includes('scouting') || l.includes('screening') || l.includes('pre-screen')) cls += ' info';
+    return `<div class="${cls}">${escLog(line)}</div>`;
+  }).join('');
+  // Auto-scroll to bottom
+  el.scrollTop = el.scrollHeight;
+}
+
+function escLog(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+function renderStats(stats) {
+  document.getElementById('s-total').textContent    = stats.total || 0;
+  const bs = stats.by_status || {};
+  document.getElementById('s-applied').textContent   = bs['Applied']   || 0;
+  document.getElementById('s-interview').textContent = bs['Interview'] || 0;
+  document.getElementById('s-offer').textContent     = bs['Offer']     || 0;
+  document.getElementById('s-rejected').textContent  = bs['Rejected']  || 0;
+}
+
+// ── Charts ───────────────────────────────────────────────────────────────────
+function renderCharts(stats) {
+  const daily = stats.daily || [];
+  const days = [], cnts = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    days.push(key.slice(5));
+    const found = daily.find(r => r.day === key);
+    cnts.push(found ? found.cnt : 0);
+  }
+  if (dailyChart) dailyChart.destroy();
+  dailyChart = new Chart(document.getElementById('dailyChart'), {
+    type: 'bar',
+    data: { labels: days, datasets: [{ data: cnts, backgroundColor: 'rgba(108,99,255,0.55)', borderColor: '#6c63ff', borderWidth: 1.5, borderRadius: 6, hoverBackgroundColor: '#a78bfa' }] },
+    options: { ...CHART_OPTS, scales: { x: { grid: { color: '#1c2035' }, ticks: { color: '#64748b', font: { size: 10 } } }, y: { grid: { color: '#1c2035' }, ticks: { color: '#64748b', font: { size: 10 }, stepSize: 1 }, beginAtZero: true } } }
+  });
+
+  const bp = stats.by_platform || {};
+  const plabels = Object.keys(bp), pdata = Object.values(bp);
+  const COLORS = ['#06b6d4','#d946ef','#6c63ff','#22c55e','#f59e0b','#ef4444'];
+  if (platformChart) platformChart.destroy();
+  platformChart = new Chart(document.getElementById('platformChart'), {
+    type: 'doughnut',
+    data: { labels: plabels, datasets: [{ data: pdata, backgroundColor: COLORS.slice(0, plabels.length), borderWidth: 0, hoverOffset: 6 }] },
+    options: { ...CHART_OPTS, cutout: '68%', plugins: { legend: { display: true, position: 'bottom', labels: { color: '#94a3b8', font: { size: 11 }, padding: 10, boxWidth: 10 } } } }
+  });
+}
+
+// ── Platform filter ───────────────────────────────────────────────────────────
+function populatePlatformFilter(apps) {
+  const platforms = [...new Set(apps.map(a => a.platform))].sort();
+  const sel = document.getElementById('platformFilter');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All Platforms</option>';
+  platforms.forEach(p => { const o = document.createElement('option'); o.value = o.textContent = p; if (p === cur) o.selected = true; sel.appendChild(o); });
+}
+
+// ── Filters & sort ───────────────────────────────────────────────────────────
+function applyFilters() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const status = document.getElementById('statusFilter').value;
+  const platform = document.getElementById('platformFilter').value;
+  let rows = allApps.filter(a => {
+    const matchQ = !q || [a.job_title, a.company, a.location, a.notes].join(' ').toLowerCase().includes(q);
+    return matchQ && (!status || a.status === status) && (!platform || a.platform === platform);
+  });
+  rows.sort((a, b) => {
+    let av = a[sortKey]||'', bv = b[sortKey]||'';
+    return sortAsc ? av.toString().localeCompare(bv.toString()) : bv.toString().localeCompare(av.toString());
+  });
+  document.getElementById('resultsCount').textContent = `${rows.length} result${rows.length !== 1 ? 's' : ''}`;
+  renderTable(rows);
+}
+
+function sortBy(key) { if (sortKey===key) sortAsc=!sortAsc; else { sortKey=key; sortAsc=false; } applyFilters(); }
+
+// ── Table ────────────────────────────────────────────────────────────────────
+function renderTable(rows) {
+  const tbody = document.getElementById('tableBody');
+  const empty = document.getElementById('emptyState');
+  if (!rows.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = rows.map(a => `
+    <tr>
+      <td class="td-date">${fmtDate(a.applied_at)}</td>
+      <td><div class="td-title">${esc(a.job_title)}</div><div class="td-company">${esc(a.company)}</div></td>
+      <td class="td-platform"><span class="p-${esc(a.platform)}">${esc(a.platform)}</span></td>
+      <td class="td-location">${esc(a.location)}</td>
+      <td class="td-salary">${esc(a.salary_range)}</td>
+      <td><button class="status-badge s-${esc(a.status)}" data-url="${esc(a.job_url)}" onclick="openMenu(event,this)">${esc(a.status)}</button></td>
+      <td class="td-url"><a href="${esc(a.job_url)}" target="_blank" rel="noopener">View ↗</a></td>
+    </tr>
+  `).join('');
+}
+
+function fmtDate(dt) {
+  if (!dt) return '—';
+  const d = new Date(dt);
+  return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short' }) + ' ' + d.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', hour12:true });
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Status menu ──────────────────────────────────────────────────────────────
+function openMenu(e, btn) {
+  e.stopPropagation(); menuTarget = btn;
+  const menu = document.getElementById('statusMenu'); menu.classList.add('open');
+  const rect = btn.getBoundingClientRect();
+  menu.style.top = (rect.bottom+6)+'px'; menu.style.left = rect.left+'px';
+}
+document.addEventListener('click', () => document.getElementById('statusMenu').classList.remove('open'));
+
+async function setStatus(newStatus) {
+  if (!menuTarget) return;
+  try {
+    await fetch(`${API}/api/update_status`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ job_url: menuTarget.dataset.url, status: newStatus }) });
+    await loadData();
+  } catch(e) { alert('Could not update. Is the dashboard running?'); }
+}
+
+// ── CSV export ───────────────────────────────────────────────────────────────
+function exportCSV() {
+  if (!allApps.length) { alert('No data to export.'); return; }
+  const cols = ['id','applied_at','platform','company','job_title','job_url','location','salary_range','status','notes'];
+  const lines = [cols.join(','), ...allApps.map(a => cols.map(c => `"${(a[c]||'').toString().replace(/"/g,'""')}"`).join(','))];
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `applications_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+}
+
+// ── Auto-refresh ─────────────────────────────────────────────────────────────
+loadAll();
+setInterval(loadAll, 10000);   // refresh every 10s when agents are live
+</script>
+</body>
+</html>

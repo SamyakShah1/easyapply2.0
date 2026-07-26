@@ -1,0 +1,24 @@
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local Database & Logs
+applications.db
+logs/
+*.log
+
+# Screenshots & Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Environment file
+.env

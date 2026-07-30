@@ -13,6 +13,9 @@ from datetime import datetime
 # Add autoapply root to path so tracker is importable when run as subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tracker
+from drivers.greenhouse import apply_greenhouse
+from drivers.smartrecruiters import apply_smartrecruiters
+from drivers.zohorecruit import apply_zohorecruit
 
 # Force UTF-8 stdout on Windows (prevents charmap codec crash from Unicode job titles)
 if sys.stdout.encoding != 'utf-8':
@@ -393,6 +396,89 @@ Rules:
     messages = [{"role": "user", "content": prompt}]
     return await robust_ollama_api_call(messages)
 
+# Dynamic routing of external career portals to standard ATS drivers
+async def route_external_apply(external_url, page, context, profile, title, company, link, location, salary):
+    """
+    Checks the external URL domain and executes the matching ATS driver if supported.
+    Returns True if successfully auto-applied, or False if we fall back to manual review.
+    """
+    url_lower = external_url.lower()
+    
+    driver_fn = None
+    platform_name = ""
+    
+    if "greenhouse.io" in url_lower:
+        driver_fn = apply_greenhouse
+        platform_name = "Greenhouse"
+    elif "smartrecruiters.com" in url_lower:
+        driver_fn = apply_smartrecruiters
+        platform_name = "SmartRecruiters"
+    elif "zohorecruit.in" in url_lower or "zoho.com" in url_lower:
+        driver_fn = apply_zohorecruit
+        platform_name = "Zoho Recruit"
+        
+    if driver_fn:
+        log(f"   └─ Detected supported ATS: {platform_name}. Loading driver...")
+        try:
+            target_page = page
+            pages = context.pages
+            if len(pages) > 1:
+                target_page = pages[-1]
+                
+            if target_page.url != external_url:
+                await target_page.goto(external_url)
+                await target_page.wait_for_timeout(3000)
+                
+            success = await driver_fn(target_page, context, profile)
+            if success:
+                # Click submit
+                submit_btn = await target_page.query_selector("button[type='submit'], input[type='button'][value*='Submit'], button:has-text('Submit'), input[type='submit']")
+                if submit_btn:
+                    await submit_btn.click()
+                    await target_page.wait_for_timeout(4000)
+                    
+                tracker.log_application(
+                    platform="Naukri",
+                    company=company,
+                    job_title=title,
+                    job_url=link,
+                    location=location,
+                    salary_range=salary,
+                    status="Applied",
+                    resume_used=os.path.basename(profile.get("resume_pdf_path", "")),
+                    notes=f"Auto-applied via {platform_name} driver: {external_url}"
+                )
+                log(f"-> [TRACKING SUCCESS] Auto-applied via {platform_name} driver: '{title}' @ '{company}'")
+                
+                if len(pages) > 1:
+                    await target_page.close()
+                return True
+        except Exception as e:
+            log(f"   └─ Driver execution failed: {e}")
+            pages = context.pages
+            if len(pages) > 1:
+                try:
+                    await pages[-1].close()
+                except Exception:
+                    pass
+            
+    # Fallback to manual logging
+    log(f"   └─ Domain not supported or driver failed. Saving link to tracker for manual review.")
+    tracker.log_application(
+        platform="Naukri",
+        company=company,
+        job_title=title,
+        job_url=link,
+        location=location,
+        salary_range=salary,
+        status="Manual Apply Needed",
+        resume_used=os.path.basename(profile.get("resume_pdf_path", "")),
+        notes=f"Requires external application: {external_url}"
+    )
+    log(f"-> [TRACKING SAVED] External apply link logged for manual review: '{title}' @ '{company}'")
+    return False
+
+
 # The state-machine loop that handles form navigation
 async def execute_application_flow(page, context, profile):
     for step in range(1, 6):
@@ -769,19 +855,39 @@ async def run_naukri_autopilot():
                                 
                                 if applied_count < profile.get("max_applications_per_run", 5):
                                     if is_external:
-                                        log(f"-> [ACTION: EXTERNAL APPLY MATCHED] FIT CONFIRMED. Saving external apply link for manual review: {title} @ {company}")
-                                        tracker.log_application(
-                                            platform="Naukri",
-                                            company=company,
-                                            job_title=title,
-                                            job_url=link,
-                                            location=location,
-                                            salary_range=salary,
-                                            status="Manual Apply Needed",
-                                            resume_used=os.path.basename(profile.get("resume_pdf_path", "")),
-                                            notes="Requires redirecting to company site. URL saved for manual application."
-                                        )
-                                        log(f"-> [TRACKING SAVED] External apply link logged for manual review.")
+                                        log(f"-> [ACTION: EXTERNAL APPLY MATCHED] FIT CONFIRMED. Resolving redirect URL for: {title} @ {company}")
+                                        try:
+                                            async with context.expect_page(timeout=10000) as new_page_info:
+                                                await robust_click(apply_btn, page)
+                                            external_page = await new_page_info.value
+                                            await external_page.bring_to_front()
+                                            await external_page.wait_for_load_state("domcontentloaded")
+                                            await external_page.wait_for_timeout(3000)
+                                            
+                                            external_url = external_page.url
+                                            log(f"   └─ Redirected to external page: {external_url}")
+                                            
+                                            # Route external apply to appropriate ATS driver
+                                            auto_applied = await route_external_apply(
+                                                external_url, page, context, profile,
+                                                title, company, link, location, salary
+                                            )
+                                            if auto_applied:
+                                                applied_count += 1
+                                        except Exception as ext_err:
+                                            log(f"   └─ Error resolving external redirect: {ext_err}")
+                                            tracker.log_application(
+                                                platform="Naukri",
+                                                company=company,
+                                                job_title=title,
+                                                job_url=link,
+                                                location=location,
+                                                salary_range=salary,
+                                                status="Manual Apply Needed",
+                                                resume_used=os.path.basename(profile.get("resume_pdf_path", "")),
+                                                notes=f"Failed to resolve external redirect: {ext_err}"
+                                            )
+                                            log(f"-> [TRACKING SAVED] External apply link logged for manual review.")
                                     else:
                                         # Internal apply
                                         log(f"-> [ACTION: APPLYING INTERNAL] FIT CONFIRMED. Starting Apply Flow for: {title} @ {company}")
@@ -802,7 +908,7 @@ async def run_naukri_autopilot():
                                                 external_url = new_page.url
                                                 if "naukri.com" not in external_url:
                                                      redirected = True
-                                                     await new_page.close()
+                                                     # Do not close here, let route_external_apply manage it
                                             elif "naukri.com" not in page.url:
                                                  # Current page navigated away
                                                  redirected = True
@@ -814,19 +920,13 @@ async def run_naukri_autopilot():
                                                      pass
                                                      
                                             if redirected:
-                                                log(f"   └─ Redirected to external site: {external_url}. Saving link to tracker for manual review.")
-                                                tracker.log_application(
-                                                    platform="Naukri",
-                                                    company=company,
-                                                    job_title=title,
-                                                    job_url=link,
-                                                    location=location,
-                                                    salary_range=salary,
-                                                    status="Manual Apply Needed",
-                                                    resume_used=os.path.basename(profile.get("resume_pdf_path", "")),
-                                                    notes=f"Redirected to external application: {external_url}"
+                                                log(f"   └─ Redirected to external site: {external_url}. Routing to driver...")
+                                                auto_applied = await route_external_apply(
+                                                    external_url, page, context, profile,
+                                                    title, company, link, location, salary
                                                 )
-                                                log(f"-> [TRACKING SAVED] External apply link logged for manual review: '{title}' at '{company}'.")
+                                                if auto_applied:
+                                                    applied_count += 1
                                                 continue
                                                 
                                             # If not redirected, proceed with internal form filling

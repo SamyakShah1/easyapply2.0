@@ -52,12 +52,49 @@ Rules:
         log(f"Error querying LLM: {e}")
     return ""
 
+async def fill_react_select(page, selector, value):
+    log(f"Selecting '{value}' for React-Select dropdown {selector}...")
+    try:
+        await page.wait_for_selector(selector, timeout=4000)
+        await page.click(selector)
+        await page.wait_for_timeout(800)
+        
+        await page.fill(selector, "")
+        await page.type(selector, value, delay=100)
+        await page.wait_for_timeout(1500)
+        
+        option_selector = f"//div[contains(@class, 'select__option') and (text()='{value}' or contains(text(), '{value}'))]"
+        option = await page.query_selector(option_selector)
+        if not option:
+            option_selector = f"//div[contains(@id, 'react-select') and (text()='{value}' or contains(text(), '{value}'))]"
+            option = await page.query_selector(option_selector)
+            
+        if option:
+            await option.scroll_into_view_if_needed()
+            await option.click()
+            log(f"Successfully selected React-Select option '{value}'")
+            await page.wait_for_timeout(500)
+            return True
+        else:
+            log(f"React-Select option '{value}' not found in dropdown list")
+            return False
+    except Exception as e:
+        log(f"Failed to fill React-Select for {selector}: {e}")
+        return False
+
 async def robust_fill(page, selector, val):
     try:
         await page.wait_for_selector(selector, timeout=4000)
         el = await page.query_selector(selector)
         await el.scroll_into_view_if_needed()
         
+        # Auto-detect React-Select input
+        cls = await el.get_attribute("class") or ""
+        if "select__input" in cls:
+            success = await fill_react_select(page, selector, val)
+            if success:
+                return True
+                
         tag = await el.evaluate("el => el.tagName")
         if tag == "SELECT":
             await page.select_option(selector, value=val)

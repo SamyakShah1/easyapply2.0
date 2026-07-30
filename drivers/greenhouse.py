@@ -63,15 +63,29 @@ async def fill_react_select(page, selector, value):
         await page.type(selector, value, delay=100)
         await page.wait_for_timeout(1500)
         
-        option_selector = f"//div[contains(@class, 'select__option') and (text()='{value}' or contains(text(), '{value}'))]"
-        option = await page.query_selector(option_selector)
-        if not option:
-            option_selector = f"//div[contains(@id, 'react-select') and (text()='{value}' or contains(text(), '{value}'))]"
-            option = await page.query_selector(option_selector)
+        # Get all options
+        options = await page.query_selector_all("//div[contains(@class, 'select__option')]")
+        if not options:
+            options = await page.query_selector_all("//div[contains(@id, 'react-select')]")
             
-        if option:
-            await option.scroll_into_view_if_needed()
-            await option.click()
+        best_option = None
+        for opt in options:
+            text = (await opt.inner_text()).strip()
+            text_lower = text.lower()
+            val_lower = value.lower()
+            
+            if text_lower == val_lower:
+                best_option = opt
+                break
+            elif text_lower.startswith(val_lower + " ") or text_lower.startswith(val_lower + "\n"):
+                best_option = opt
+                break
+            elif val_lower in text_lower and not best_option:
+                best_option = opt
+                
+        if best_option:
+            await best_option.scroll_into_view_if_needed()
+            await best_option.click()
             log(f"Successfully selected React-Select option '{value}'")
             await page.wait_for_timeout(500)
             return True

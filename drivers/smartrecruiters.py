@@ -73,7 +73,25 @@ async def apply_smartrecruiters(page, context, profile):
             log(f"Filled link {wf['selector']} -> {wf['value']}")
             await page.wait_for_timeout(500)
 
-    # 5. Check for Submit button
+    # 5. Handle Human Verification (Cloudflare / Turnstile / Checkbox)
+    log("Checking for human verification or CAPTCHA blocks...")
+    verification_iframe = await page.query_selector("iframe[src*='cloudflare'], iframe[src*='recaptcha'], iframe[title*='widget']")
+    if verification_iframe:
+        log("Verification widget detected! Attempting to auto-solve or pausing for manual intervention...")
+        try:
+            # Simple attempt to click the center of the iframe if it's a basic checkbox
+            box = await verification_iframe.bounding_box()
+            if box:
+                await page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                await page.wait_for_timeout(3000)
+        except Exception:
+            pass
+            
+        # Give the user a long pause to manually solve it just in case
+        log("If verification is still pending, please solve it manually in the browser window now. Waiting 45 seconds...")
+        await page.wait_for_timeout(45000)
+
+    # 6. Check for Submit button
     submit_btn = await page.query_selector("button[type='submit'], button[id*='submit'], button:has-text('Submit')")
     if submit_btn:
         log("Form filled. Waiting 3 seconds for visual check before returning...")

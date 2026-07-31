@@ -16,6 +16,9 @@ import tracker
 from drivers.greenhouse import apply_greenhouse
 from drivers.smartrecruiters import apply_smartrecruiters
 from drivers.zohorecruit import apply_zohorecruit
+from drivers.lever import apply_lever
+from drivers.workday import apply_workday
+from drivers.generic import apply_generic
 
 # Force UTF-8 stdout on Windows (prevents charmap codec crash from Unicode job titles)
 if sys.stdout.encoding != 'utf-8':
@@ -416,9 +419,18 @@ async def route_external_apply(external_url, page, context, profile, title, comp
     elif "zohorecruit.in" in url_lower or "zoho.com" in url_lower:
         driver_fn = apply_zohorecruit
         platform_name = "Zoho Recruit"
+    elif "lever.co" in url_lower:
+        driver_fn = apply_lever
+        platform_name = "Lever"
+    elif "myworkdayjobs.com" in url_lower:
+        driver_fn = apply_workday
+        platform_name = "Workday"
+    else:
+        driver_fn = apply_generic
+        platform_name = "Generic Custom Parser"
         
     if driver_fn:
-        log(f"   └─ Detected supported ATS: {platform_name}. Loading driver...")
+        log(f"   └─ Executing driver: {platform_name}...")
         try:
             target_page = page
             pages = context.pages

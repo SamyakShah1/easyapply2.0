@@ -145,7 +145,7 @@ async def apply_greenhouse(page, context, profile):
         {"id": "#last_name", "value": profile.get("last_name", profile["full_name"].split()[-1] if len(profile["full_name"].split()) > 1 else "")},
         {"id": "#email", "value": profile["email"]},
         {"id": "#phone", "value": profile["phone_number"]},
-        {"id": "#country", "value": profile["current_location"]},
+        {"id": "#country", "value": profile.get("country", "India")},
     ]
     
     for f in fields:

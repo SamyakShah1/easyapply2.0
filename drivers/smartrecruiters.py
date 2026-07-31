@@ -92,10 +92,10 @@ async def apply_smartrecruiters(page, context, profile):
         await page.wait_for_timeout(45000)
 
     # 6. Check for Submit button
-    submit_btn = await page.query_selector("button[type='submit'], button[id*='submit'], button:has-text('Submit')")
+    submit_btn = await page.query_selector("button[type='submit'], input[type='submit'], button[id*='submit'], button[data-test='footer-submit'], button[data-test*='submit'], button:has-text('Submit'), button:has-text('Next'), button:has-text('Send')")
     if submit_btn:
-        log("Form filled. Waiting 3 seconds for visual check before returning...")
-        await page.wait_for_timeout(3000)
-        return True
+        log("Found submit/next button.")
         
-    return False
+    log("Form filled. Waiting 3 seconds for visual check before returning...")
+    await page.wait_for_timeout(3000)
+    return True

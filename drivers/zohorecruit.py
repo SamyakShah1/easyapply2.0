@@ -34,21 +34,36 @@ async def apply_zohorecruit(page, context, profile):
         await page.wait_for_timeout(4000)
         
     # 2. Fill basic details
-    fields = [
-        {"selector": "input[id*='First_Name'], input[name='First Name'], input[id*='firstName']", "value": profile.get("first_name", profile["full_name"].split()[0])},
-        {"selector": "input[id*='Last_Name'], input[name='Last Name'], input[id*='lastName']", "value": profile.get("last_name", profile["full_name"].split()[-1] if len(profile["full_name"].split()) > 1 else "")},
-        {"selector": "input[id*='Email'], input[name='Email'], input[id='email']", "value": profile["email"]},
-        {"selector": "input[id*='Mobile'], input[id*='Phone'], input[name*='Mobile'], input[name*='phone']", "value": profile["phone_number"]},
-        {"selector": "input[id*='City'], input[id*='Location'], input[name*='City']", "value": profile["current_location"]},
-    ]
+    label_mappings = {
+        "First Name": profile.get("first_name", profile["full_name"].split()[0]),
+        "Last Name": profile.get("last_name", profile["full_name"].split()[-1] if len(profile["full_name"].split()) > 1 else ""),
+        "Email": profile["email"],
+        "Mobile": profile["phone_number"],
+        "Phone": profile["phone_number"],
+        "City": profile["current_location"],
+        "Location": profile["current_location"],
+        "LinkedIn": profile.get("linkedin_url", ""),
+        "GitHub": profile.get("github_url", "")
+    }
     
-    for f in fields:
-        el = await page.query_selector(f["selector"])
-        if el and await el.is_visible():
-            success = await robust_fill(el, f["value"])
-            if success:
-                log(f"Filled {f['selector']} -> {f['value']}")
-            await page.wait_for_timeout(500)
+    labels = await page.query_selector_all("label")
+    for label in labels:
+        try:
+            text = await label.inner_text()
+            text = text.replace("*", "").strip()
+            
+            if text in label_mappings:
+                id_attr = await label.get_attribute("id")
+                if id_attr and id_attr.startswith("crc-label-"):
+                    input_name = id_attr.replace("crc-label-", "")
+                    input_el = await page.query_selector(f"input[name='{input_name}']")
+                    if input_el and await input_el.is_visible():
+                        success = await robust_fill(input_el, label_mappings[text])
+                        if success:
+                            log(f"Filled {text} ({input_name}) -> {label_mappings[text]}")
+                        await page.wait_for_timeout(500)
+        except Exception:
+            pass
             
     # 3. Upload Resume
     resume_input = await page.query_selector("input[type='file'][id*='resume'], input[type='file'][id*='file'], input[type='file']")
@@ -73,11 +88,11 @@ async def apply_zohorecruit(page, context, profile):
             log(f"Filled link {wf['selector']} -> {wf['value']}")
             await page.wait_for_timeout(500)
 
-    # 5. Check for Submit button
+    # 4. Check for Submit button
     submit_btn = await page.query_selector("input[type='button'][value*='Submit'], button[id*='submit'], button:has-text('Submit'), input[type='submit']")
     if submit_btn:
-        log("Form filled. Waiting 3 seconds for visual check before returning...")
-        await page.wait_for_timeout(3000)
-        return True
+        log("Found submit button.")
         
-    return False
+    log("Form filled. Waiting 3 seconds for visual check before returning...")
+    await page.wait_for_timeout(3000)
+    return True

@@ -28,6 +28,8 @@ Candidate Profile:
 - AI Agent Experience: {profile['ai_agent_experience_months']} months
 - Skills: {', '.join(profile['skills'])}
 - Education Details: {profile.get('education_details', {})}
+- Requires Visa Sponsorship: {profile.get('requires_visa_sponsorship', 'No')}
+- Previously Employed Here: {profile.get('previously_employed_at_target', 'No')}
 
 Recruiter Question:
 "{question}"
@@ -144,7 +146,7 @@ async def apply_greenhouse(page, context, profile):
         {"id": "#first_name", "value": profile.get("first_name", profile["full_name"].split()[0])},
         {"id": "#last_name", "value": profile.get("last_name", profile["full_name"].split()[-1] if len(profile["full_name"].split()) > 1 else "")},
         {"id": "#email", "value": profile["email"]},
-        {"id": "#phone", "value": profile["phone_number"]},
+        {"id": "#phone", "value": profile.get("phone_country_code", "") + " " + profile["phone_number"]},
         {"id": "#country", "value": profile.get("country", "India")},
     ]
     

@@ -9,7 +9,7 @@ import httpx
 from playwright.async_api import async_playwright
 
 load_dotenv()
-GROQ_API_KEY = os.getenv("Groq_API_KEY")
+GROQ_API_KEY = os.getenv("naukri_agent") or os.getenv("all_other")
 DB_PATH = "job_hunter.db"
 
 def get_preferences():

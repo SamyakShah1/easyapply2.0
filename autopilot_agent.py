@@ -474,6 +474,46 @@ async def execute_application_flow(page, context, profile):
     return False
 
 # Main Autopilot Crawler
+# Dynamic Login Gate for Internshala
+async def wait_for_login(page):
+    log("[Login Gate] Checking Internshala login status...")
+    try:
+        await page.goto("https://internshala.com/", timeout=60000)
+        await page.wait_for_timeout(3000)
+    except Exception as e:
+        log(f"[Login Gate] Navigation warning: {e}")
+        
+    url = page.url
+    
+    # Try to detect if already logged in quickly
+    try:
+        is_logged_in = "student/dashboard" in url or await page.query_selector(".profile_container, #profile-dropdown, .nav-profile, a[href*='/student/dashboard']")
+        if is_logged_in:
+            log("[Login Gate] SUCCESS: Authenticated session detected! Resuming...")
+            return
+    except Exception:
+        pass
+        
+    log("=" * 60)
+    log("[ACTION REQUIRED] Please log in to Internshala in the opened Chrome window.")
+    log("If a login popup doesn't appear, click the 'Login' button at the top right.")
+    log("The script will automatically detect when you are logged in and resume.")
+    log("=" * 60)
+    
+    while True:
+        try:
+            url = page.url
+            # Check for standard logged-in indicators
+            logged_in_url = "student/dashboard" in url
+            profile_icon = await page.query_selector(".profile_container, #profile-dropdown, .nav-profile, a[href*='/student/dashboard']")
+            
+            if logged_in_url or profile_icon:
+                log("\n[Login Gate] SUCCESS: Authenticated session detected! Resuming...")
+                break
+        except Exception:
+            pass
+        await asyncio.sleep(2.0)
+
 async def run_autopilot():
     os.makedirs("logs", exist_ok=True)
     with open("logs/autopilot.log", "w", encoding="utf-8") as f:
@@ -504,6 +544,9 @@ async def run_autopilot():
                 page = await context.new_page()
             else:
                 page = context.pages[0]
+                
+            # 1. Trigger Interactive Login Gate
+            await wait_for_login(page)
             
             processed_urls = set()
             applied_count = 0

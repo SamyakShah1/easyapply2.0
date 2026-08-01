@@ -4,9 +4,20 @@ import json
 import urllib.parse
 from datetime import datetime
 import os
+import logging
 from dotenv import load_dotenv
 import httpx
 from playwright.async_api import async_playwright
+
+os.makedirs("logs", exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [Naukri] %(message)s",
+    handlers=[
+        logging.FileHandler("logs/scrapers.log", encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("naukri_agent") or os.getenv("all_other")
@@ -39,7 +50,6 @@ def save_job(platform, title, company, location, salary, job_url, match_reason):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     try:
-        # job_url acts as the unique job_id for this MVP
         cursor.execute('''
         INSERT INTO scraped_jobs (platform, job_id, title, company, location, salary, job_url, match_reason)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -51,7 +61,7 @@ def save_job(platform, title, company, location, salary, job_url, match_reason):
 
 async def evaluate_job_with_groq(prefs, title, company, location, salary, description):
     if not GROQ_API_KEY:
-        print("[!] No Groq API Key found. Assuming job is a match.")
+        logging.warning("No Groq API Key found. Assuming job is a match.")
         return {"match": True, "reason": "No Groq API Key, matched by default."}
         
     prompt = f"""
@@ -100,20 +110,19 @@ async def evaluate_job_with_groq(prefs, title, company, location, salary, descri
             result = json.loads(content)
             return result
     except Exception as e:
-        print(f"Groq API Error: {e}")
+        logging.error(f"Groq API Error: {e}")
         return {"match": False, "reason": "Failed to evaluate via Groq."}
 
 async def scan_naukri():
     prefs = get_preferences()
     if not prefs:
-        print("No user preferences found in DB. Run setup_db.py first.")
+        logging.error("No user preferences found in DB. Run setup_db.py first.")
         return
         
     keywords = [k.strip() for k in prefs["target_roles"].split(",")]
-    print(f"Starting Naukri Scanner for keywords: {keywords}")
+    logging.info(f"Starting Naukri Scanner for keywords: {keywords}")
     
     async with async_playwright() as p:
-        # Use a real browser context to avoid blocks
         browser = await p.chromium.launch(headless=True, args=['--disable-blink-features=AutomationControlled'])
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
@@ -122,19 +131,18 @@ async def scan_naukri():
         
         for keyword in keywords:
             encoded_keyword = urllib.parse.quote(keyword)
-            # Scan only first page to keep it fast for 2hr crons
             search_url = f"https://www.naukri.com/jobs-in-india-1?k={encoded_keyword}"
-            print(f"\nScanning: {search_url}")
+            logging.info(f"Scanning: {search_url}")
             
             try:
                 await page.goto(search_url, timeout=30000)
                 await page.wait_for_selector("div.srp-jobtuple-wrapper, article.jobTuple", timeout=10000)
             except Exception as e:
-                print(f"Failed to load search results: {e}")
+                logging.error(f"Failed to load search results: {e}")
                 continue
                 
             raw_cards = await page.query_selector_all("div.srp-jobtuple-wrapper, article.jobTuple")
-            print(f"Found {len(raw_cards)} job cards for '{keyword}'")
+            logging.info(f"Found {len(raw_cards)} job cards for '{keyword}'")
             
             for card in raw_cards:
                 title_el = await card.query_selector("a.title, a.job-tuple-title")
@@ -143,7 +151,6 @@ async def scan_naukri():
                 if not href: continue
                 if href.startswith("/"): href = "https://www.naukri.com" + href
                 
-                # Instantly discard if we've already scraped it
                 if is_job_scraped(href):
                     continue
                     
@@ -161,14 +168,14 @@ async def scan_naukri():
                 desc_el = await card.query_selector(".job-description, .ellipsis.job-description")
                 description = await desc_el.inner_text() if desc_el else ""
                 
-                print(f"Evaluating: {title} @ {company}")
+                logging.info(f"Evaluating: {title} @ {company}")
                 eval_result = await evaluate_job_with_groq(prefs, title, company, location, salary, description)
                 
                 if eval_result.get("match"):
-                    print(f"✅ MATCH: {eval_result.get('reason')}")
+                    logging.info(f"✅ MATCH: {eval_result.get('reason')}")
                     save_job("Naukri", title, company, location, salary, href, eval_result.get('reason'))
                 else:
-                    print(f"❌ SKIP: {eval_result.get('reason')}")
+                    logging.info(f"❌ SKIP: {eval_result.get('reason')}")
                     
         await browser.close()
 

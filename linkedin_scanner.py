@@ -4,9 +4,20 @@ import json
 import urllib.parse
 from datetime import datetime
 import os
+import logging
 from dotenv import load_dotenv
 import httpx
 from playwright.async_api import async_playwright
+
+os.makedirs("logs", exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [LinkedIn] %(message)s",
+    handlers=[
+        logging.FileHandler("logs/scrapers.log", encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("linkedin_agent") or os.getenv("all_other")
@@ -30,7 +41,6 @@ def get_preferences():
 def is_job_scraped(job_url):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    # For linkedin, sometimes url has query params, just match by basic prefix if possible, or exact
     cursor.execute("SELECT 1 FROM scraped_jobs WHERE job_url = ?", (job_url,))
     exists = cursor.fetchone() is not None
     conn.close()
@@ -81,7 +91,7 @@ async def evaluate_job_with_groq(prefs, title, company, location, salary, descri
             )
             return json.loads(resp.json()["choices"][0]["message"]["content"])
     except Exception as e:
-        print(f"Groq API Error: {e}")
+        logging.error(f"Groq API Error: {e}")
         return {"match": False, "reason": "API Failure"}
 
 async def scan_linkedin():
@@ -93,7 +103,7 @@ async def scan_linkedin():
     primary_keyword = keywords[0]
     encoded_keyword = urllib.parse.quote(primary_keyword)
     
-    print(f"Starting LinkedIn Scanner for role: {primary_keyword}")
+    logging.info(f"Starting LinkedIn Scanner for role: {primary_keyword}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=['--disable-blink-features=AutomationControlled'])
@@ -102,19 +112,19 @@ async def scan_linkedin():
         )
         page = await context.new_page()
         
-        search_url = f"https://www.linkedin.com/jobs/search/?keywords={encoded_keyword}&location=India&f_TPR=r86400" # Last 24 hours
-        print(f"Scanning: {search_url}")
+        search_url = f"https://www.linkedin.com/jobs/search/?keywords={encoded_keyword}&location=India&f_TPR=r86400"
+        logging.info(f"Scanning: {search_url}")
         
         try:
             await page.goto(search_url, timeout=30000)
             await page.wait_for_selector(".job-search-card", timeout=10000)
         except Exception:
-            print("Failed to load search results on LinkedIn. It may require auth or captcha.")
+            logging.error("Failed to load search results on LinkedIn. It may require auth or captcha.")
             await browser.close()
             return
             
         raw_cards = await page.query_selector_all(".job-search-card")
-        print(f"Found {len(raw_cards)} job cards on LinkedIn")
+        logging.info(f"Found {len(raw_cards)} job cards on LinkedIn")
         
         for card in raw_cards:
             title_el = await card.query_selector(".base-search-card__title")
@@ -122,7 +132,7 @@ async def scan_linkedin():
             
             link_el = await card.query_selector("a.base-card__full-link")
             href = await link_el.get_attribute("href") if link_el else ""
-            if "?" in href: href = href.split("?")[0] # clean tracking params
+            if "?" in href: href = href.split("?")[0]
             
             if not href or is_job_scraped(href): continue
             
@@ -137,16 +147,16 @@ async def scan_linkedin():
             location = await loc_el.inner_text() if loc_el else "India"
             location = location.strip()
             
-            salary = "Not Disclosed" # LinkedIn rarely shows salary on the card preview
+            salary = "Not Disclosed"
             
-            print(f"Evaluating: {title} @ {company}")
+            logging.info(f"Evaluating: {title} @ {company}")
             eval_result = await evaluate_job_with_groq(prefs, title, company, location, salary, "")
             
             if eval_result.get("match"):
-                print(f"✅ MATCH: {eval_result.get('reason')}")
+                logging.info(f"✅ MATCH: {eval_result.get('reason')}")
                 save_job("LinkedIn", title, company, location, salary, href, eval_result.get('reason'))
             else:
-                print(f"❌ SKIP: {eval_result.get('reason')}")
+                logging.info(f"❌ SKIP: {eval_result.get('reason')}")
                 
         await browser.close()
 

@@ -4,9 +4,20 @@ import json
 import urllib.parse
 from datetime import datetime
 import os
+import logging
 from dotenv import load_dotenv
 import httpx
 from playwright.async_api import async_playwright
+
+os.makedirs("logs", exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [Instahyre] %(message)s",
+    handlers=[
+        logging.FileHandler("logs/scrapers.log", encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("instahyre_agent") or os.getenv("all_other")
@@ -80,20 +91,19 @@ async def evaluate_job_with_groq(prefs, title, company, location, salary, descri
             )
             return json.loads(resp.json()["choices"][0]["message"]["content"])
     except Exception as e:
-        print(f"Groq API Error: {e}")
+        logging.error(f"Groq API Error: {e}")
         return {"match": False, "reason": "API Failure"}
 
 async def scan_instahyre():
     prefs = get_preferences()
     if not prefs: return
     
-    # We will search based on the first skill listed
     skills = [s.strip() for s in prefs["skills"].split(",")]
     if not skills: return
     primary_skill = skills[0]
     encoded_skill = urllib.parse.quote(primary_skill)
     
-    print(f"Starting Instahyre Scanner for skill: {primary_skill}")
+    logging.info(f"Starting Instahyre Scanner for skill: {primary_skill}")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=['--disable-blink-features=AutomationControlled'])
@@ -101,24 +111,23 @@ async def scan_instahyre():
         page = await context.new_page()
         
         search_url = f"https://www.instahyre.com/search-jobs/?job_type=all&skills={encoded_skill}"
-        print(f"Scanning: {search_url}")
+        logging.info(f"Scanning: {search_url}")
         
         try:
             await page.goto(search_url, timeout=30000)
             await page.wait_for_selector(".job-list, .employer-block", timeout=10000)
         except Exception:
-            print("Failed to load search results on Instahyre.")
+            logging.error("Failed to load search results on Instahyre.")
             await browser.close()
             return
             
         raw_cards = await page.query_selector_all(".employer-block")
-        print(f"Found {len(raw_cards)} job cards on Instahyre")
+        logging.info(f"Found {len(raw_cards)} job cards on Instahyre")
         
         for card in raw_cards:
             title_el = await card.query_selector(".job-title, .employer-job-name")
             if not title_el: continue
             
-            # The URL on Instahyre might be in a different element, usually the card itself or a button
             link_el = await card.query_selector("a[href*='/job/']")
             href = await link_el.get_attribute("href") if link_el else search_url
             if href.startswith("/"): href = "https://www.instahyre.com" + href
@@ -136,14 +145,14 @@ async def scan_instahyre():
             sal_el = await card.query_selector(".job-salary")
             salary = await sal_el.inner_text() if sal_el else "Not Disclosed"
             
-            print(f"Evaluating: {title} @ {company}")
+            logging.info(f"Evaluating: {title} @ {company}")
             eval_result = await evaluate_job_with_groq(prefs, title, company, location, salary, "")
             
             if eval_result.get("match"):
-                print(f"✅ MATCH: {eval_result.get('reason')}")
+                logging.info(f"✅ MATCH: {eval_result.get('reason')}")
                 save_job("Instahyre", title, company, location, salary, href, eval_result.get('reason'))
             else:
-                print(f"❌ SKIP: {eval_result.get('reason')}")
+                logging.info(f"❌ SKIP: {eval_result.get('reason')}")
                 
         await browser.close()
 

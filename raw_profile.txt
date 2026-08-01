@@ -1,0 +1,13 @@
+Name: Samyak Shah
+Current Location: Hyderabad
+Experience: 0.5 Year
+Skills: Python, FastApi, LangChain, LangGraph, CrewAI, LLMs, PostgreSQL, Redis, Docker, Git, GitHub Actions, CI/CD, AWS, GCP, Azure
+Current CTC: 11,00,000 INR
+Expected CTC: 14,00,000 INR
+Education: Computer Science, VIT Vellore (2026), 9.1 CGPA
+
+Target Job Description:
+I am looking for Software Development Engineer (SDE), AI Engineer, or Python Backend Developer roles. I prefer tech stacks built with Python, FastAPI, LangChain, or LangGraph. Locations must be Remote, Hyderabad, or Bangalore. The minimum salary expectation is 14,00,000 INR. Avoid unpaid internships, sales, marketing, or HR positions.
+
+Cover Letter Pitch:
+I am a skilled AI engineer with a passion for building intelligent, scalable solutions that solve real-world problems. I enjoy learning new technologies, rapidly adapting to advances in AI, and collaborating to deliver innovative, high-impact systems.

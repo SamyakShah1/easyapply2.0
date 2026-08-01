@@ -3,40 +3,83 @@ import json
 import sqlite3
 import httpx
 import asyncio
+import pdfplumber
+import logging
 from dotenv import load_dotenv
+
+# Ensure logs directory exists
+os.makedirs("logs", exist_ok=True)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("logs/profiler.log", encoding='utf-8'),
+        logging.StreamHandler() # Also print to terminal
+    ]
+)
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("profiler_agent") or os.getenv("all_other")
 DB_PATH = "job_hunter.db"
 PROFILE_FILE = "raw_profile.txt"
+JSON_PROFILE = "profile.json"
+
+def extract_pdf_text(pdf_path):
+    text = ""
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        logging.error(f"Error reading PDF ({pdf_path}): {e}")
+        return ""
 
 async def extract_preferences():
     if not GROQ_API_KEY:
-        print("[!] No 'profiler_agent' or 'all_other' key found in .env.")
+        logging.error("No 'profiler_agent' or 'all_other' key found in .env.")
         return
         
-    if not os.path.exists(PROFILE_FILE):
-        print(f"[!] Please create a '{PROFILE_FILE}' file and paste your resume, salary expectations, and preferred locations into it.")
-        # Create a template file for the user
-        with open(PROFILE_FILE, "w", encoding="utf-8") as f:
-            f.write("Please paste your resume and preferences here.\nExample: I am a senior python dev looking for remote jobs or bangalore. I want at least 20 LPA.")
+    raw_text = ""
+    if os.path.exists(PROFILE_FILE):
+        with open(PROFILE_FILE, "r", encoding="utf-8") as f:
+            raw_text = f.read().strip()
+            logging.info(f"Loaded {len(raw_text)} characters from {PROFILE_FILE}")
+            
+    pdf_text = ""
+    if os.path.exists(JSON_PROFILE):
+        try:
+            with open(JSON_PROFILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                pdf_path = data.get("resume_pdf_path")
+                if pdf_path and os.path.exists(pdf_path):
+                    logging.info(f"Extracting text from resume: {pdf_path}")
+                    pdf_text = extract_pdf_text(pdf_path)
+                    logging.info(f"Extracted {len(pdf_text)} characters from Resume PDF.")
+                else:
+                    logging.warning(f"Resume not found at path specified in profile.json: {pdf_path}")
+        except Exception as e:
+            logging.error(f"Could not parse profile.json: {e}")
+            
+    if not raw_text and not pdf_text:
+        logging.error(f"No text found in {PROFILE_FILE} and no valid resume PDF found.")
         return
         
-    with open(PROFILE_FILE, "r", encoding="utf-8") as f:
-        raw_text = f.read().strip()
-        
-    if not raw_text or raw_text.startswith("Please paste your resume"):
-        print(f"[!] '{PROFILE_FILE}' is empty or contains the template. Please fill it with your details and run this again.")
-        return
-        
-    print(f"Analyzing {PROFILE_FILE} to build your Agent State...")
+    logging.info("Analyzing your Profile and Resume via Groq 70B AI...")
     
     prompt = f"""
-    You are the Profiler Agent. Your job is to extract highly specific job hunting preferences from the user's unstructured text/resume.
+    You are the Profiler Agent. Your job is to extract highly specific job hunting preferences from the user's unstructured text and resume.
     
-    User's Raw Profile/Input:
+    User's Raw Profile Input:
     \"\"\"
     {raw_text}
+    \"\"\"
+    
+    User's Resume Content:
+    \"\"\"
+    {pdf_text}
     \"\"\"
     
     You must extract and output a valid JSON object with the following schema:
@@ -61,31 +104,29 @@ async def extract_preferences():
                     "response_format": {"type": "json_object"},
                     "temperature": 0.1
                 },
-                timeout=20.0
+                timeout=30.0
             )
             data = resp.json()
             content = data["choices"][0]["message"]["content"]
             result = json.loads(content)
             
-            # Save to Database
             conn = sqlite3.connect(DB_PATH)
             cursor = conn.cursor()
-            
-            # Update the single configuration row
             cursor.execute('''
             UPDATE user_preferences 
             SET target_roles = ?, min_salary = ?, locations = ?, skills = ? 
             WHERE id = (SELECT id FROM user_preferences LIMIT 1)
             ''', (result["target_roles"], result["min_salary"], result["locations"], result["skills"]))
-            
             conn.commit()
             conn.close()
             
-            print("\n✅ Profiler Agent successfully updated your State Database!")
-            print(json.dumps(result, indent=2))
+            logging.info("✅ Profiler Agent successfully updated your State Database based on your Resume!")
+            logging.info("\n=== EXTRACTED AI PROFILE ===")
+            logging.info(json.dumps(result, indent=4))
+            logging.info("============================")
             
     except Exception as e:
-        print(f"Failed to profile user: {e}")
+        logging.error(f"Failed to profile user: {e}")
 
 if __name__ == "__main__":
     asyncio.run(extract_preferences())
